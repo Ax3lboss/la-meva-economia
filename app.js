@@ -3,7 +3,9 @@ const app = document.querySelector('#app');
 const DB_NAME = 'la-meva-economia';
 let db, state = { accounts: [], categories: [], movements: [], recurrings: [] };
 let screen = 'home';
+let summaryMonth = '';
 const euro = new Intl.NumberFormat('ca-ES', { style: 'currency', currency: 'EUR' });
+const monthFormatter = new Intl.DateTimeFormat('ca-ES', { month: 'long', year: 'numeric' });
 const today = () => new Date().toISOString().slice(0, 10);
 const uid = () => crypto.randomUUID();
 
@@ -43,12 +45,12 @@ function renderSetup() {
   document.querySelector('#setup-form').onsubmit = async e => { e.preventDefault(); const rows = [...document.querySelectorAll('.account-row')]; await Promise.all(rows.map(r => put('accounts', { id:uid(), name:r.children[0].value.trim(), initialBalance:Number(r.children[1].value) || 0 }))); await seedCategories(); await refresh(); render(); };
 }
 function layout(content, fab = false) {
-  app.innerHTML = `<header class="screen-head"><h1>La Meva Economia</h1></header>${content}${fab ? '<button class="fab" id="add-movement" aria-label="Afegir moviment">+</button>' : ''}<nav class="bottom-nav"><button data-screen="home" class="${screen==='home'?'active':''}">Inici</button><button data-screen="history" class="${screen==='history'?'active':''}">Historial</button><button data-screen="accounts" class="${screen==='accounts'?'active':''}">Comptes</button><button data-screen="more" class="${screen==='more'?'active':''}">Més</button></nav>`;
+  app.innerHTML = `<header class="screen-head"><h1>La Meva Economia</h1></header>${content}${fab ? '<button class="fab" id="add-movement" aria-label="Afegir moviment">+</button>' : ''}<nav class="bottom-nav"><button data-screen="home" class="${screen==='home'?'active':''}">Inici</button><button data-screen="summaries" class="${screen==='summaries'?'active':''}">Resums</button><button data-screen="history" class="${screen==='history'?'active':''}">Historial</button><button data-screen="accounts" class="${screen==='accounts'?'active':''}">Comptes</button><button data-screen="more" class="${screen==='more'?'active':''}">Més</button></nav>`;
   document.querySelectorAll('[data-screen]').forEach(b => b.onclick = () => { screen = b.dataset.screen; render(); });
   document.querySelector('#add-movement')?.addEventListener('click', () => movementModal());
 }
 function render() {
-  if (screen === 'home') return renderHome(); if (screen === 'history') return renderHistory(); if (screen === 'accounts') return renderAccounts(); renderMore();
+  if (screen === 'home') return renderHome(); if (screen === 'summaries') return renderSummaries(); if (screen === 'history') return renderHistory(); if (screen === 'accounts') return renderAccounts(); renderMore();
 }
 function renderHome() {
   const month = today().slice(0,7); const ms = state.movements.filter(m => m.date.startsWith(month));
@@ -56,6 +58,24 @@ function renderHome() {
   const incomes = ms.filter(m => m.type==='income').reduce((s,m) => s + Number(m.amount),0);
   const expenses = ms.filter(m => m.type==='expense').reduce((s,m) => s + Number(m.amount),0);
   layout(`<section class="balance"><span>Saldo total</span><strong>${euro.format(total)}</strong></section><section class="summary"><article><span>Ingressos del mes</span><strong class="income">${euro.format(incomes)}</strong></article><article><span>Despeses del mes</span><strong class="expense">${euro.format(expenses)}</strong></article></section>`, true);
+}
+function renderSummaries() {
+  const months = [...new Set(state.movements.map(m => m.date.slice(0, 7)))].sort().reverse();
+  if (!months.length) return layout(`<section><h2>Resums</h2><p class="empty">Encara no hi ha moviments per resumir.</p></section>`);
+  if (!months.includes(summaryMonth)) summaryMonth = months[0];
+  const movements = state.movements.filter(m => m.date.startsWith(summaryMonth));
+  const incomes = movements.filter(m => m.type === 'income');
+  const expenses = movements.filter(m => m.type === 'expense');
+  const totalIncomes = incomes.reduce((sum, m) => sum + Number(m.amount), 0);
+  const totalExpenses = expenses.reduce((sum, m) => sum + Number(m.amount), 0);
+  const label = monthFormatter.format(new Date(`${summaryMonth}-01T12:00:00`));
+  layout(`<section><div class="section-top"><h2>Resums</h2><select id="summary-month" aria-label="Mes del resum">${months.map(month => `<option value="${month}" ${month === summaryMonth ? 'selected' : ''}>${esc(monthFormatter.format(new Date(`${month}-01T12:00:00`)))}</option>`).join('')}</select></div><div class="summary"><article><span>Ingressos</span><strong class="income">${euro.format(totalIncomes)}</strong></article><article><span>Despeses</span><strong class="expense">${euro.format(totalExpenses)}</strong></article></div><section class="card month-balance"><span> Balanç de ${esc(label)}</span><strong class="${totalIncomes-totalExpenses >= 0 ? 'income' : 'expense'}">${euro.format(totalIncomes-totalExpenses)}</strong></section><section class="breakdown"><h2>Despeses per categoria</h2>${categoryBreakdown(expenses, 'No hi ha despeses aquest mes.')}</section><section class="breakdown"><h2>Ingressos per categoria</h2>${categoryBreakdown(incomes, 'No hi ha ingressos aquest mes.')}</section></section>`);
+  document.querySelector('#summary-month').onchange = e => { summaryMonth = e.target.value; renderSummaries(); };
+}
+function categoryBreakdown(movements, emptyText) {
+  if (!movements.length) return `<p class="empty breakdown-empty">${emptyText}</p>`;
+  const totals = movements.reduce((result, movement) => { const category = nameOf(state.categories, movement.categoryId, 'Categoria eliminada'); result[category] = (result[category] || 0) + Number(movement.amount); return result; }, {});
+  return `<div class="list">${Object.entries(totals).sort((a, b) => b[1] - a[1]).map(([category, total]) => `<article class="item"><strong>${esc(category)}</strong><strong class="amount">${euro.format(total)}</strong></article>`).join('')}</div>`;
 }
 function renderHistory() {
   layout(`<section><div class="section-top"><h2>Historial</h2><button class="btn small secondary" id="clear-filters">Netejar</button></div><div class="filters"><input id="f-date" type="date" aria-label="Data"><select id="f-category"><option value="">Categoria</option>${categoryOptions()}</select><select id="f-account"><option value="">Compte</option>${accountOptions()}</select><select id="f-type"><option value="">Tipus</option><option value="income">Ingrés</option><option value="expense">Despesa</option></select><input id="f-min" type="number" step="0.01" placeholder="Import mínim"><input id="f-max" type="number" step="0.01" placeholder="Import màxim"></div><div id="movement-list" class="list"></div></section>`, true);
