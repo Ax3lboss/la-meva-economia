@@ -108,32 +108,30 @@ const totalAmount = movements => movements.reduce((sum, m) => sum + Math.round(N
 function renderSummaryResults() {
   const results = document.querySelector('#summary-results');
   if (summaryMode === 'range' && !summaryFrom) return;
-  if (summaryMode !== 'month') {
-    const expenses = state.movements.filter(m => m.type === 'expense' &&
-      (summaryMode === 'all' || (m.date >= summaryFrom && m.date <= summaryTo)));
-    results.innerHTML = `<section class="card month-balance"><span>Total de despeses</span><strong class="expense">${euro.format(totalAmount(expenses) / 100)}</strong></section>
-      <section class="breakdown"><h2>Despeses per categoria</h2>${categoryBreakdown(expenses, 'No hi ha despeses en aquest període.', true)}</section>`;
-    return;
-  }
-  if (!summaryMonth) {
+  const isMonthly = summaryMode === 'month';
+  if (isMonthly && !summaryMonth) {
     results.innerHTML = '<p class="empty">Encara no hi ha moviments per resumir.</p>';
     return;
   }
-  const movements = state.movements.filter(m => m.date.slice(0, 7) === summaryMonth);
+  const movements = state.movements.filter(m => {
+    if (isMonthly) return m.date.slice(0, 7) === summaryMonth;
+    return summaryMode === 'all' || (m.date >= summaryFrom && m.date <= summaryTo);
+  });
   const incomes = movements.filter(m => m.type === 'income');
   const expenses = movements.filter(m => m.type === 'expense');
   const totalIncomes = totalAmount(incomes);
   const totalExpenses = totalAmount(expenses);
   const balance = totalIncomes - totalExpenses;
+  const period = isMonthly ? 'aquest mes' : 'en aquest període';
   results.innerHTML = `<div class="summary month-balance">
       <article><span>Ingressos</span><strong class="income">${euro.format(totalIncomes / 100)}</strong></article>
       <article><span>Despeses</span><strong class="expense">${euro.format(totalExpenses / 100)}</strong></article>
     </div>
-    <section class="card month-balance"><span>Balanç del mes</span><strong class="${balance >= 0 ? 'income' : 'expense'}">${euro.format(balance / 100)}</strong></section>
-    <section class="breakdown"><h2>Despeses per categoria</h2>${categoryBreakdown(expenses, 'No hi ha despeses aquest mes.', true)}</section>
-    <section class="breakdown"><h2>Ingressos per categoria</h2>${categoryBreakdown(incomes, 'No hi ha ingressos aquest mes.')}</section>`;
+    ${isMonthly ? `<section class="card month-balance"><span>Balanç del mes</span><strong class="${balance >= 0 ? 'income' : 'expense'}">${euro.format(balance / 100)}</strong></section>` : ''}
+    <section class="breakdown"><h2>Despeses per categoria</h2>${categoryBreakdown(expenses, `No hi ha despeses ${period}.`)}</section>
+    <section class="breakdown"><h2>Ingressos per categoria</h2>${categoryBreakdown(incomes, `No hi ha ingressos ${period}.`)}</section>`;
 }
-function categoryBreakdown(movements, emptyText, expandable = false) {
+function categoryBreakdown(movements, emptyText) {
   if (!movements.length) return `<p class="empty breakdown-empty">${emptyText}</p>`;
   const groups = new Map();
   for (const movement of movements) {
@@ -145,7 +143,6 @@ function categoryBreakdown(movements, emptyText, expandable = false) {
   })).sort((a, b) => b.total - a.total);
   return `<div class="list">${rows.map(({ category, items, total }) => {
     const heading = `<strong>${esc(category)}</strong><strong class="amount">${euro.format(total / 100)}</strong>`;
-    if (!expandable) return `<article class="item">${heading}</article>`;
     const details = items.sort((a, b) => b.date.localeCompare(a.date)).map(m => `<li class="item">
       <div class="item-main"><strong>${esc(m.notes || category)}</strong><small>${esc(m.date)} · ${esc(nameOf(state.accounts, m.accountId))}</small></div>
       <span class="amount">${euro.format(m.amount)}</span></li>`).join('');
