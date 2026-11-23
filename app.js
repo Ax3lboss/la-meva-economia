@@ -130,6 +130,9 @@ function renderSummaryResults() {
     ${isMonthly ? `<section class="card month-balance"><span>Balanç del mes</span><strong class="${balance >= 0 ? 'income' : 'expense'}">${euro.format(balance / 100)}</strong></section>` : ''}
     <section class="breakdown"><h2>Despeses per categoria</h2>${categoryBreakdown(expenses, `No hi ha despeses ${period}.`)}</section>
     <section class="breakdown"><h2>Ingressos per categoria</h2>${categoryBreakdown(incomes, `No hi ha ingressos ${period}.`)}</section>`;
+  results.querySelectorAll('[data-edit-movement]').forEach(button => {
+    button.onclick = () => movementModal(button.dataset.editMovement);
+  });
 }
 function categoryBreakdown(movements, emptyText) {
   if (!movements.length) return `<p class="empty breakdown-empty">${emptyText}</p>`;
@@ -143,9 +146,15 @@ function categoryBreakdown(movements, emptyText) {
   })).sort((a, b) => b.total - a.total);
   return `<div class="list">${rows.map(({ category, items, total }) => {
     const heading = `<strong>${esc(category)}</strong><strong class="amount">${euro.format(total / 100)}</strong>`;
-    const details = items.sort((a, b) => b.date.localeCompare(a.date)).map(m => `<li class="item">
-      <div class="item-main"><strong>${esc(m.notes || category)}</strong><small>${esc(m.date)} · ${esc(nameOf(state.accounts, m.accountId))}</small></div>
-      <span class="amount">${euro.format(m.amount)}</span></li>`).join('');
+    const details = items.sort((a, b) => b.date.localeCompare(a.date)).map(m => {
+      const description = m.notes || category;
+      const row = `<span class="item-main"><strong>${esc(description)}</strong><small>${esc(m.date)} · ${esc(nameOf(state.accounts, m.accountId))}</small></span>
+        <span class="amount">${euro.format(m.amount)}</span>`;
+      if (m.type === 'expense') {
+        return `<li><button type="button" class="item summary-edit" data-edit-movement="${esc(m.id)}" aria-label="Edita la despesa: ${esc(description)}">${row}</button></li>`;
+      }
+      return `<li class="item">${row}</li>`;
+    }).join('');
     return `<details class="category-detail"><summary class="item">${heading}</summary><ul class="list">${details}</ul></details>`;
   }).join('')}</div>`;
 }
