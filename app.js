@@ -148,12 +148,12 @@ function categoryBreakdown(movements, emptyText) {
     const heading = `<strong>${esc(category)}</strong><strong class="amount">${euro.format(total / 100)}</strong>`;
     const details = items.sort((a, b) => b.date.localeCompare(a.date)).map(m => {
       const description = m.notes || category;
-      const row = `<span class="item-main"><strong>${esc(description)}</strong><small>${esc(m.date)} · ${esc(nameOf(state.accounts, m.accountId))}</small></span>
-        <span class="amount">${euro.format(m.amount)}</span>`;
+      const label = `<span class="item-main"><strong>${esc(description)}</strong><small>${esc(m.date)} · ${esc(nameOf(state.accounts, m.accountId))}</small></span>`;
+      const price = `<span class="amount">${euro.format(m.amount)}</span>`;
       if (m.type === 'expense') {
-        return `<li><button type="button" class="item summary-edit" data-edit-movement="${esc(m.id)}" aria-label="Edita la despesa: ${esc(description)}">${row}</button></li>`;
+        return `<li><button type="button" class="item summary-edit" data-edit-movement="${esc(m.id)}" aria-label="Edita la despesa: ${esc(description)}">${label}<span class="summary-edit-end">${price}<span class="summary-edit-action">Edita</span></span></button></li>`;
       }
-      return `<li class="item">${row}</li>`;
+      return `<li class="item">${label}${price}</li>`;
     }).join('');
     return `<details class="category-detail"><summary class="item">${heading}</summary><ul class="list">${details}</ul></details>`;
   }).join('')}</div>`;
@@ -202,5 +202,7 @@ async function generateRecurring() {
   const now=new Date(), current=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   for(const r of state.recurrings) { if(r.lastGenerated===current) continue; const last=r.lastGenerated || current; const [y,m]=current.split('-').map(Number); const day=Math.min(r.day,new Date(y,m,0).getDate()); const date=`${current}-${String(day).padStart(2,'0')}`; if(date<=today()) { await put('movements',{id:uid(),type:r.type,amount:Number(r.amount),categoryId:r.categoryId,accountId:r.accountId,notes:r.notes,date,recurringId:r.id}); await put('recurrings',{...r,lastGenerated:current}); } }
 }
-if ('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js'));
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }));
+}
 bootstrap().catch(err=>{ app.innerHTML=`<p class="empty">No s’ha pogut obrir l’aplicació: ${esc(err.message)}</p>`; });
