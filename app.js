@@ -4,6 +4,8 @@ const DB_NAME = 'la-meva-economia';
 let db, state = { accounts: [], categories: [], movements: [], recurrings: [] };
 let screen = 'home';
 let summaryMonth = '';
+let summaryMode = 'month';
+let summaryFrom = '', summaryTo = '';
 const euro = new Intl.NumberFormat('ca-ES', { style: 'currency', currency: 'EUR' });
 const monthFormatter = new Intl.DateTimeFormat('ca-ES', { month: 'long', year: 'numeric' });
 const today = () => new Date().toISOString().slice(0, 10);
@@ -61,21 +63,94 @@ function renderHome() {
 }
 function renderSummaries() {
   const months = [...new Set(state.movements.map(m => m.date.slice(0, 7)))].sort().reverse();
-  if (!months.length) return layout(`<section><h2>Resums</h2><p class="empty">Encara no hi ha moviments per resumir.</p></section>`);
   if (!months.includes(summaryMonth)) summaryMonth = months[0];
-  const movements = state.movements.filter(m => m.date.startsWith(summaryMonth));
+  const monthOptions = months.map(month => {
+    const label = monthFormatter.format(new Date(`${month}-01T12:00:00`));
+    return `<option value="${month}" ${month === summaryMonth ? 'selected' : ''}>${esc(label)}</option>`;
+  }).join('');
+  const periodOptions = [['month', 'Mensual'], ['range', 'Interval de dates'], ['all', 'Des de l’inici']];
+  layout(`<section>
+    <div class="section-top"><h2>Resums</h2>
+      <select id="summary-mode" aria-label="Període del resum">${periodOptions.map(([value, label]) => `<option value="${value}" ${value === summaryMode ? 'selected' : ''}>${label}</option>`).join('')}</select>
+    </div>
+    ${summaryMode === 'month' && months.length ? `<div class="field"><label for="summary-month">Mes</label><select id="summary-month">${monthOptions}</select></div>` : ''}
+    ${summaryMode === 'range' ? `<form id="summary-range" class="form">
+      <div class="summary-dates">
+        <div class="field"><label for="summary-from">Des de</label><input id="summary-from" name="from" type="date" required value="${esc(summaryFrom)}"></div>
+        <div class="field"><label for="summary-to">Fins a</label><input id="summary-to" name="to" type="date" required value="${esc(summaryTo)}"></div>
+      </div>
+      <div><button class="btn">Mostra el resum</button></div>
+      <p id="summary-error" class="expense" role="alert" hidden></p>
+    </form>` : ''}
+    <div id="summary-results"></div>
+  </section>`);
+  document.querySelector('#summary-mode').onchange = e => { summaryMode = e.target.value; renderSummaries(); };
+  const monthSelect = document.querySelector('#summary-month');
+  if (monthSelect) monthSelect.onchange = e => { summaryMonth = e.target.value; renderSummaryResults(); };
+  const rangeForm = document.querySelector('#summary-range');
+  if (rangeForm) rangeForm.onsubmit = e => {
+    e.preventDefault();
+    const { from, to } = Object.fromEntries(new FormData(rangeForm));
+    const error = document.querySelector('#summary-error');
+    error.hidden = from <= to;
+    if (!error.hidden) {
+      error.textContent = 'La data inicial ha de ser anterior o igual a la data final.';
+      document.querySelector('#summary-results').innerHTML = '';
+      return;
+    }
+    summaryFrom = from;
+    summaryTo = to;
+    renderSummaryResults();
+  };
+  renderSummaryResults();
+}
+const totalAmount = movements => movements.reduce((sum, m) => sum + Math.round(Number(m.amount) * 100), 0);
+function renderSummaryResults() {
+  const results = document.querySelector('#summary-results');
+  if (summaryMode === 'range' && !summaryFrom) return;
+  if (summaryMode !== 'month') {
+    const expenses = state.movements.filter(m => m.type === 'expense' &&
+      (summaryMode === 'all' || (m.date >= summaryFrom && m.date <= summaryTo)));
+    results.innerHTML = `<section class="card month-balance"><span>Total de despeses</span><strong class="expense">${euro.format(totalAmount(expenses) / 100)}</strong></section>
+      <section class="breakdown"><h2>Despeses per categoria</h2>${categoryBreakdown(expenses, 'No hi ha despeses en aquest període.', true)}</section>`;
+    return;
+  }
+  if (!summaryMonth) {
+    results.innerHTML = '<p class="empty">Encara no hi ha moviments per resumir.</p>';
+    return;
+  }
+  const movements = state.movements.filter(m => m.date.slice(0, 7) === summaryMonth);
   const incomes = movements.filter(m => m.type === 'income');
   const expenses = movements.filter(m => m.type === 'expense');
-  const totalIncomes = incomes.reduce((sum, m) => sum + Number(m.amount), 0);
-  const totalExpenses = expenses.reduce((sum, m) => sum + Number(m.amount), 0);
-  const label = monthFormatter.format(new Date(`${summaryMonth}-01T12:00:00`));
-  layout(`<section><div class="section-top"><h2>Resums</h2><select id="summary-month" aria-label="Mes del resum">${months.map(month => `<option value="${month}" ${month === summaryMonth ? 'selected' : ''}>${esc(monthFormatter.format(new Date(`${month}-01T12:00:00`)))}</option>`).join('')}</select></div><div class="summary"><article><span>Ingressos</span><strong class="income">${euro.format(totalIncomes)}</strong></article><article><span>Despeses</span><strong class="expense">${euro.format(totalExpenses)}</strong></article></div><section class="card month-balance"><span> Balanç de ${esc(label)}</span><strong class="${totalIncomes-totalExpenses >= 0 ? 'income' : 'expense'}">${euro.format(totalIncomes-totalExpenses)}</strong></section><section class="breakdown"><h2>Despeses per categoria</h2>${categoryBreakdown(expenses, 'No hi ha despeses aquest mes.')}</section><section class="breakdown"><h2>Ingressos per categoria</h2>${categoryBreakdown(incomes, 'No hi ha ingressos aquest mes.')}</section></section>`);
-  document.querySelector('#summary-month').onchange = e => { summaryMonth = e.target.value; renderSummaries(); };
+  const totalIncomes = totalAmount(incomes);
+  const totalExpenses = totalAmount(expenses);
+  const balance = totalIncomes - totalExpenses;
+  results.innerHTML = `<div class="summary month-balance">
+      <article><span>Ingressos</span><strong class="income">${euro.format(totalIncomes / 100)}</strong></article>
+      <article><span>Despeses</span><strong class="expense">${euro.format(totalExpenses / 100)}</strong></article>
+    </div>
+    <section class="card month-balance"><span>Balanç del mes</span><strong class="${balance >= 0 ? 'income' : 'expense'}">${euro.format(balance / 100)}</strong></section>
+    <section class="breakdown"><h2>Despeses per categoria</h2>${categoryBreakdown(expenses, 'No hi ha despeses aquest mes.', true)}</section>
+    <section class="breakdown"><h2>Ingressos per categoria</h2>${categoryBreakdown(incomes, 'No hi ha ingressos aquest mes.')}</section>`;
 }
-function categoryBreakdown(movements, emptyText) {
+function categoryBreakdown(movements, emptyText, expandable = false) {
   if (!movements.length) return `<p class="empty breakdown-empty">${emptyText}</p>`;
-  const totals = movements.reduce((result, movement) => { const category = nameOf(state.categories, movement.categoryId, 'Categoria eliminada'); result[category] = (result[category] || 0) + Number(movement.amount); return result; }, {});
-  return `<div class="list">${Object.entries(totals).sort((a, b) => b[1] - a[1]).map(([category, total]) => `<article class="item"><strong>${esc(category)}</strong><strong class="amount">${euro.format(total)}</strong></article>`).join('')}</div>`;
+  const groups = new Map();
+  for (const movement of movements) {
+    if (!groups.has(movement.categoryId)) groups.set(movement.categoryId, []);
+    groups.get(movement.categoryId).push(movement);
+  }
+  const rows = [...groups].map(([id, items]) => ({
+    category: nameOf(state.categories, id, 'Categoria eliminada'), items, total: totalAmount(items)
+  })).sort((a, b) => b.total - a.total);
+  return `<div class="list">${rows.map(({ category, items, total }) => {
+    const heading = `<strong>${esc(category)}</strong><strong class="amount">${euro.format(total / 100)}</strong>`;
+    if (!expandable) return `<article class="item">${heading}</article>`;
+    const details = items.sort((a, b) => b.date.localeCompare(a.date)).map(m => `<li class="item">
+      <div class="item-main"><strong>${esc(m.notes || category)}</strong><small>${esc(m.date)} · ${esc(nameOf(state.accounts, m.accountId))}</small></div>
+      <span class="amount">${euro.format(m.amount)}</span></li>`).join('');
+    return `<details class="category-detail"><summary class="item">${heading}</summary><ul class="list">${details}</ul></details>`;
+  }).join('')}</div>`;
 }
 function renderHistory() {
   layout(`<section><div class="section-top"><h2>Historial</h2><button class="btn small secondary" id="clear-filters">Netejar</button></div><div class="filters"><input id="f-date" type="date" aria-label="Data"><select id="f-category"><option value="">Categoria</option>${categoryOptions()}</select><select id="f-account"><option value="">Compte</option>${accountOptions()}</select><select id="f-type"><option value="">Tipus</option><option value="income">Ingrés</option><option value="expense">Despesa</option></select><input id="f-min" type="number" step="0.01" placeholder="Import mínim"><input id="f-max" type="number" step="0.01" placeholder="Import màxim"></div><div id="movement-list" class="list"></div></section>`, true);
